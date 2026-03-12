@@ -21,6 +21,7 @@ from threading import Lock, Semaphore
 import random
 import re
 import logging
+import aiohttp
 
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -143,6 +144,127 @@ services = {
     "Uber Eats": {"sender": "no-reply@ubereats.com", "file": "Hits_UberEats_by_@TTT9KK.txt", "category": "food"},
     "DoorDash": {"sender": "no-reply@doordash.com", "file": "Hits_DoorDash_by_@TTT9KK.txt", "category": "food"},
 }
+
+# ==================== TIKTOK USERNAME CHECKER ====================
+
+async def check_tiktok_username(username):
+    """Check if TikTok username is available"""
+    try:
+        url = f"https://www.tiktok.com/@{username}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 404:
+                    return True, "available"
+                else:
+                    return False, "taken"
+    except Exception as e:
+        return None, "error"
+
+def generate_username(user_type, with_numbers):
+    """Generate random username"""
+    import string
+    
+    LETTERS = string.ascii_lowercase
+    DIGITS = string.digits
+    
+    chars = LETTERS + (DIGITS if with_numbers else "")
+    
+    if user_type == "4l":
+        return ''.join(random.choices(chars, k=4))
+    
+    if user_type == "3l":
+        return ''.join(random.choices(chars, k=3))
+    
+    # 3l with underscore
+    a, b = random.choices(LETTERS, k=2)
+    c = random.choice(chars)
+    return f"{a}_{b}{c}" if random.random() < 0.5 else f"{a}{b}{c}_"
+
+async def start_tiktok_sniper(update: Update, context: ContextTypes.DEFAULT_TYPE, user_type, with_numbers, delay, max_checks):
+    """Start TikTok username sniper"""
+    user_id = update.effective_user.id
+    
+    if not user_manager.is_active(user_id) and user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ حسابك غير مفعّل!")
+        return
+    
+    found_count = 0
+    checked_count = 0
+    
+    status_msg = await update.message.reply_text(
+        f"""
+🎯 <b>TikTok Username Sniper</b>
+
+⏳ جاري البحث...
+📊 تم الفحص: 0
+✅ متاح: 0
+
+💎 <b>Created by @TTT9KK</b>
+        """,
+        parse_mode='HTML'
+    )
+    
+    import aiohttp
+    
+    async with aiohttp.ClientSession() as session:
+        while checked_count < max_checks:
+            # Generate random username
+            username = generate_username(user_type, with_numbers)
+            
+            # Check availability
+            available, status = await check_tiktok_username(username)
+            
+            checked_count += 1
+            
+            if available:
+                found_count += 1
+                
+                # Send available username
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"""
+✅ <b>اسم متاح!</b>
+
+👤 <b>Username:</b> <code>{username}</code>
+🔗 <b>Link:</b> https://www.tiktok.com/@{username}
+
+💎 <b>Created by @TTT9KK</b>
+                    """,
+                    parse_mode='HTML'
+                )
+            
+            # Update progress every 10 checks
+            if checked_count % 10 == 0:
+                await status_msg.edit_text(
+                    f"""
+🎯 <b>TikTok Username Sniper</b>
+
+⏳ جاري البحث...
+📊 تم الفحص: {checked_count}
+✅ متاح: {found_count}
+
+💎 <b>Created by @TTT9KK</b>
+                    """,
+                    parse_mode='HTML'
+                )
+            
+            # Delay
+            await asyncio.sleep(delay)
+    
+    # Final message
+    await status_msg.edit_text(
+        f"""
+✅ <b>اكتمل البحث!</b>
+
+📊 <b>النتائج:</b>
+• تم الفحص: {checked_count}
+• متاح: {found_count}
+
+💎 <b>Created by @TTT9KK</b>
+        """,
+        parse_mode='HTML'
+    )
 
 # ==================== USER MANAGEMENT ====================
 
@@ -504,6 +626,55 @@ def check_emails_for_services_v2(access_token, cid, email, selected_services=Non
 
 # ==================== BOT HANDLERS ====================
 
+async def tiktok_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """TikTok username sniper command"""
+    user_id = update.effective_user.id
+    
+    if not user_manager.is_active(user_id) and user_id not in ADMIN_IDS:
+        await update.message.reply_text(
+            f"""
+❌ <b>حسابك غير مفعّل!</b>
+
+👤 آيديك: <code>{user_id}</code>
+
+للحصول على اشتراك، تواصل مع المطور:
+{MY_SIGNATURE}
+            """,
+            parse_mode='HTML'
+        )
+        return
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("4 أحرف (4l)", callback_data="tiktok_4l"),
+            InlineKeyboardButton("3 أحرف (3l)", callback_data="tiktok_3l")
+        ],
+        [
+            InlineKeyboardButton("3 أحرف + _ (3l_)", callback_data="tiktok_3l_")
+        ],
+        [
+            InlineKeyboardButton("❌ إلغاء", callback_data="cancel")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"""
+🎯 <b>TikTok Username Sniper</b>
+
+اختر نوع اسم المستخدم:
+
+<b>📝 الأنواع:</b>
+• <b>4l:</b> 4 أحرف عشوائية (مثل: abcd)
+• <b>3l:</b> 3 أحرف عشوائية (مثل: abc)
+• <b>3l_:</b> 3 أحرف + _ (مثل: a_bc أو ab_c)
+
+💎 <b>Created by @TTT9KK</b>
+        """,
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command handler"""
     user = update.effective_user
@@ -517,6 +688,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📋 <b>الأوامر المتاحة:</b>
 /start - عرض هذه الرسالة
 /check - بدء فحص الحسابات
+/tiktok - فحص أسماء TikTok المتاحة
 /status - عرض حالة الاشتراك
 /stats - عرض الإحصائيات
 /help - المساعدة
@@ -526,7 +698,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     
     keyboard = [
-        [InlineKeyboardButton("🚀 بدء الفحص", callback_data="start_check")],
+        [InlineKeyboardButton("🚀 فحص حسابات", callback_data="start_check")],
+        [InlineKeyboardButton("🎯 TikTok Sniper", callback_data="tiktok_menu")],
         [InlineKeyboardButton("📊 حالة الاشتراك", callback_data="my_status")],
         [InlineKeyboardButton("📢 القناة", url=TELEGRAM_CHANNEL)]
     ]
@@ -825,7 +998,152 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     
-    if data == "start_check":
+    elif data == "tiktok_menu":
+        keyboard = [
+            [
+                InlineKeyboardButton("4 أحرف (4l)", callback_data="tiktok_4l"),
+                InlineKeyboardButton("3 أحرف (3l)", callback_data="tiktok_3l")
+            ],
+            [
+                InlineKeyboardButton("3 أحرف + _ (3l_)", callback_data="tiktok_3l_")
+            ],
+            [
+                InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"""
+🎯 <b>TikTok Username Sniper</b>
+
+اختر نوع اسم المستخدم:
+
+<b>📝 الأنواع:</b>
+• <b>4l:</b> 4 أحرف عشوائية (مثل: abcd)
+• <b>3l:</b> 3 أحرف عشوائية (مثل: abc)
+• <b>3l_:</b> 3 أحرف + _ (مثل: a_bc)
+
+💎 <b>Created by @TTT9KK</b>
+            """,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif data.startswith("tiktok_"):
+        user_type = data.split("_")[1]
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ نعم", callback_data=f"tiktok_numbers_yes_{user_type}"),
+                InlineKeyboardButton("❌ لا", callback_data=f"tiktok_numbers_no_{user_type}")
+            ],
+            [
+                InlineKeyboardButton("🔙 رجوع", callback_data="tiktok_menu")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"""
+🎯 <b>TikTok Username Sniper</b>
+
+📝 <b>النوع المختار:</b> {user_type}
+
+هل تريد تضمين أرقام في الاسم؟
+
+💎 <b>Created by @TTT9KK</b>
+            """,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif data.startswith("tiktok_numbers_"):
+        parts = data.split("_")
+        with_numbers = parts[2] == "yes"
+        user_type = parts[3]
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("100 فحص", callback_data=f"tiktok_start_{user_type}_{with_numbers}_100"),
+                InlineKeyboardButton("500 فحص", callback_data=f"tiktok_start_{user_type}_{with_numbers}_500")
+            ],
+            [
+                InlineKeyboardButton("1000 فحص", callback_data=f"tiktok_start_{user_type}_{with_numbers}_1000"),
+                InlineKeyboardButton("∞ لا نهائي", callback_data=f"tiktok_start_{user_type}_{with_numbers}_9999999")
+            ],
+            [
+                InlineKeyboardButton("🔙 رجوع", callback_data="tiktok_menu")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"""
+🎯 <b>TikTok Username Sniper</b>
+
+📝 <b>النوع:</b> {user_type}
+🔢 <b>أرقام:</b> {'نعم' if with_numbers else 'لا'}
+
+كم عدد الفحوصات؟
+
+💎 <b>Created by @TTT9KK</b>
+            """,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif data.startswith("tiktok_start_"):
+        parts = data.split("_")
+        user_type = parts[2]
+        with_numbers = parts[3] == "True"
+        max_checks = int(parts[4])
+        
+        await query.edit_message_text(
+            f"""
+🎯 <b>TikTok Username Sniper</b>
+
+⏳ جاري بدء البحث...
+
+📝 النوع: {user_type}
+🔢 أرقام: {'نعم' if with_numbers else 'لا'}
+📊 الفحوصات: {max_checks if max_checks < 9999999 else '∞'}
+
+💎 <b>Created by @TTT9KK</b>
+            """,
+            parse_mode='HTML'
+        )
+        
+        # Start sniper
+        import asyncio
+        asyncio.create_task(
+            start_tiktok_sniper(query, context, user_type, with_numbers, 0.05, max_checks)
+        )
+    
+    elif data == "back_to_main":
+        keyboard = [
+            [InlineKeyboardButton("🚀 فحص حسابات", callback_data="start_check")],
+            [InlineKeyboardButton("🎯 TikTok Sniper", callback_data="tiktok_menu")],
+            [InlineKeyboardButton("📊 حالة الاشتراك", callback_data="my_status")],
+            [InlineKeyboardButton("📢 القناة", url=TELEGRAM_CHANNEL)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"""
+🎯 <b>مرحباً بك في Hotmail MFC Checker Bot</b>
+
+👤 الآيدي الخاص بك: <code>{user_id}</code>
+
+اختر الخدمة:
+
+💎 <b>Created by @TTT9KK</b>
+            """,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif data == "start_check":
         if not user_manager.is_active(user_id):
             await query.edit_message_text(
                 f"❌ حسابك غير مفعّل!\n\nآيديك: <code>{user_id}</code>",
@@ -1206,6 +1524,7 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("check", check_command))
+    application.add_handler(CommandHandler("tiktok", tiktok_command))
     application.add_handler(CommandHandler("activate", activate_command))
     application.add_handler(CommandHandler("remove", remove_command))
     application.add_handler(CommandHandler("users", users_command))
