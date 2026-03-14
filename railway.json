@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python3 hotmail_checker_bot.py",
+    "startCommand": "cd /app && ls -la && python3 hotmail_checker_bot.py || python3 /workspace/hotmail_checker_bot.py || find / -name hotmail_checker_bot.py -exec python3 {} \\;",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
