@@ -24,6 +24,50 @@ import logging
 import aiohttp
 import asyncio
 
+# Additional useful libraries
+try:
+    from loguru import logger
+    USE_LOGURU = True
+    # Configure loguru
+    logger.add("bot_{time}.log", rotation="1 day", retention="7 days", level="INFO")
+except ImportError:
+    USE_LOGURU = False
+    logger = logging.getLogger(__name__)
+
+try:
+    import redis
+    USE_REDIS = True
+    # Redis connection
+    try:
+        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        redis_client.ping()
+        if USE_LOGURU:
+            logger.success("✅ Redis connected successfully")
+    except:
+        USE_REDIS = False
+        if USE_LOGURU:
+            logger.warning("⚠️ Redis not available, using local cache")
+except ImportError:
+    USE_REDIS = False
+
+try:
+    import aiofiles
+    USE_AIOFILES = True
+except ImportError:
+    USE_AIOFILES = False
+
+try:
+    from prettytable import PrettyTable
+    USE_PRETTYTABLE = True
+except ImportError:
+    USE_PRETTYTABLE = False
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    USE_PIL = True
+except ImportError:
+    USE_PIL = False
+
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -146,6 +190,47 @@ services = {
     "DoorDash": {"sender": "no-reply@doordash.com", "file": "Hits_DoorDash_by_@TTT9KK.txt", "category": "food"},
 }
 
+# ==================== ASYNC FILE OPERATIONS ====================
+
+async def save_hit_async(file_path, content):
+    """Save hit to file asynchronously"""
+    if USE_AIOFILES:
+        try:
+            async with aiofiles.open(file_path, 'a', encoding='utf-8') as f:
+                await f.write(content)
+            return True
+        except:
+            pass
+    
+    # Fallback to sync
+    try:
+        with open(file_path, 'a', encoding='utf-8') as f:
+            f.write(content)
+        return True
+    except Exception as e:
+        if USE_LOGURU:
+            logger.error(f"Error saving file: {e}")
+        return False
+
+async def read_combos_async(file_path):
+    """Read combos asynchronously"""
+    if USE_AIOFILES:
+        try:
+            async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = await f.readlines()
+            return [line.strip() for line in lines if ':' in line]
+        except:
+            pass
+    
+    # Fallback to sync
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return [line.strip() for line in f if ':' in line]
+    except Exception as e:
+        if USE_LOGURU:
+            logger.error(f"Error reading file: {e}")
+        return []
+
 # ==================== INSTAGRAM CHECKER ====================
 
 def encrypt_instagram_password(password, timestamp=None):
@@ -227,6 +312,125 @@ async def check_instagram_account(username, password):
     except Exception as e:
         logger.error(f"Instagram check error: {e}")
         return None, "error"
+
+# ==================== CACHE SYSTEM ====================
+
+class CacheManager:
+    """Cache manager using Redis or in-memory fallback"""
+    
+    def __init__(self):
+        self.use_redis = USE_REDIS
+        self.local_cache = {}
+        self.cache_lock = Lock()
+    
+    def get(self, key):
+        """Get value from cache"""
+        if self.use_redis:
+            try:
+                return redis_client.get(key)
+            except:
+                pass
+        
+        # Fallback to local cache
+        with self.cache_lock:
+            return self.local_cache.get(key)
+    
+    def set(self, key, value, expire=3600):
+        """Set value in cache with expiration (default 1 hour)"""
+        if self.use_redis:
+            try:
+                redis_client.setex(key, expire, value)
+                return True
+            except:
+                pass
+        
+        # Fallback to local cache
+        with self.cache_lock:
+            self.local_cache[key] = {
+                'value': value,
+                'expire': time.time() + expire
+            }
+        return True
+    
+    def exists(self, key):
+        """Check if key exists in cache"""
+        if self.use_redis:
+            try:
+                return redis_client.exists(key)
+            except:
+                pass
+        
+        # Fallback to local cache
+        with self.cache_lock:
+            if key in self.local_cache:
+                if time.time() < self.local_cache[key]['expire']:
+                    return True
+                else:
+                    del self.local_cache[key]
+        return False
+    
+    def delete(self, key):
+        """Delete key from cache"""
+        if self.use_redis:
+            try:
+                redis_client.delete(key)
+            except:
+                pass
+        
+        with self.cache_lock:
+            self.local_cache.pop(key, None)
+    
+    def get_stats(self):
+        """Get cache statistics"""
+        if self.use_redis:
+            try:
+                info = redis_client.info('stats')
+                return {
+                    'type': 'Redis',
+                    'keys': redis_client.dbsize(),
+                    'hits': info.get('keyspace_hits', 0),
+                    'misses': info.get('keyspace_misses', 0)
+                }
+            except:
+                pass
+        
+        return {
+            'type': 'Local',
+            'keys': len(self.local_cache)
+        }
+
+# Initialize cache manager
+cache_manager = CacheManager()
+
+# ==================== RATE LIMITER ====================
+
+class RateLimiter:
+    """Rate limiter for users"""
+    
+    def __init__(self, max_requests=10, window=60):
+        self.max_requests = max_requests
+        self.window = window  # seconds
+    
+    def is_allowed(self, user_id):
+        """Check if user is allowed to make request"""
+        key = f"rate_limit:{user_id}"
+        
+        if cache_manager.exists(key):
+            count = int(cache_manager.get(key) or 0)
+            if count >= self.max_requests:
+                return False, count
+            cache_manager.set(key, str(count + 1), self.window)
+            return True, count + 1
+        else:
+            cache_manager.set(key, "1", self.window)
+            return True, 1
+    
+    def reset(self, user_id):
+        """Reset rate limit for user"""
+        cache_manager.delete(f"rate_limit:{user_id}")
+
+# Initialize rate limiter
+rate_limiter = RateLimiter(max_requests=5, window=60)
 
 # ==================== ADMIN NOTIFICATIONS ====================
 
