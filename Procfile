@@ -1,1 +1,1 @@
-worker: python hotmail_checker_bot.py
+worker: python3 hotmail_checker_bot.py
