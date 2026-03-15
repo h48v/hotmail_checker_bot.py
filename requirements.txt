@@ -2,8 +2,6 @@ python-telegram-bot==20.7
 requests==2.31.0
 colorama==0.4.6
 aiohttp==3.9.1
-
-# Optional but recommended libraries
 loguru==0.7.2
 redis==5.0.1
 aiofiles==23.2.1
